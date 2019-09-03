@@ -11,6 +11,9 @@ duply_work_dir: /var/duply
 duply_temp_dir: /tmp
 duply_log_dir: /var/log/duply
 
+duply_pre_script_template: pre.j2
+duply_post_script_template: post.j2
+
 duply_profiles: []
 
 duply_max_age: 1M

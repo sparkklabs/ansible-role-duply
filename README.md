@@ -15,6 +15,8 @@ duply_profiles:
   - name: "<name>"
     source: "<directory>"
     target: "<target>"
+    pre_script_template: "<directory>"
+    post_script_template: "<directory>"
     params:
       - "DUPL_PARAMS=\"$DUPL_PARAMS --copy-links\""
     exclude:

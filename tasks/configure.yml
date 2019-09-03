@@ -67,7 +67,7 @@
 
 - name: duply | Configure pre scripts
   template:
-    src: pre.j2
+    src: "{{ item.pre_script_template|default(duply_pre_script_template) }}"
     dest: "{{ duply_home_dir }}/{{ item.name }}/pre"
     owner: "{{ item.user|default(duply_user) }}"
     group: "{{ item.group|default(duply_group) }}"
@@ -75,7 +75,7 @@
 
 - name: duply | Configure post scripts
   template:
-    src: post.j2
+    src: "{{ item.post_script_template|default(duply_post_script_template) }}"
     dest: "{{ duply_home_dir }}/{{ item.name }}/post"
     owner: "{{ item.user|default(duply_user) }}"
     group: "{{ item.group|default(duply_group) }}"

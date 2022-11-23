@@ -9,11 +9,11 @@
 #  changed from ftplicity to duply.                                            #
 #  See http://duply.net or http://ftplicity.sourceforge.net/ for more info.    #
 #  (c) 2006 Christiane Ruetten, Heise Zeitschriften Verlag, Germany            #
-#  (c) 2008-2016 Edgar Soldin (changes since version 1.3)                      #
+#  (c) 2008-2022 Edgar Soldin (changes since version 1.3)                      #
 ################################################################################
 #  LICENSE:                                                                    #
 #  This program is licensed under GPLv2.                                       #
-#  Please read the accompanying license information in gpl.txt.                #
+#  Please read the accompanying license information in gpl-2.0.txt.            #
 ################################################################################
 #  TODO/IDEAS/KNOWN PROBLEMS:
 #  - possibility to restore time frames (incl. deleted files)
@@ -25,14 +25,70 @@
 #  - implement log-fd interpretation
 #  - add a duplicity option check against the options pending 
 #    deprecation since 0.5.10 namely --time-separator
-#                               --short-filenames
-#                              --old-filenames
-#  - add 'exclude_<command>' list usage eg. exclude_verify
+#                                    --short-filenames
+#                                    --old-filenames
+#  - add 'exclude_<command>' list usage e.g. exclude_verify
 #  - featreq 25: a download/install duplicity option
-#  - hint on install software if a piece is missing
 #  - import/export profile from/to .tgz function !!!
+#  - remove url_encode, test for invalid chars n throw error instead
 #
 #  CHANGELOG:
+#  2.4.1 (9.9.2004)
+#  - fixup duplicity links, moved to http://duplicity.us
+#  - bugfix: duply hangs on awk version detection on OpenBSD (thx phthomas137)
+#
+#  2.4 (6.4.2022)
+#  - bugfix #127: date_from_nsecs ignores format string
+#  - bugfix #116: separators print date now too
+#  - featreq #48: add purgeAuto command (see man page)
+#  - replaced tab indents with 2spaces everywhere
+#  - bugfix #129,131,132: duply stumbles over 'python -s' shebang,
+#      python interpreter parse failed if duplicity is a snap app
+#  - bugfix #130: duplicity version check failed "gpg: WARNING: ..."
+#  - version output, always print PYTHONPATH, if interpreter was determined
+#  - update python references to python3
+#
+#  2.3.1 (11.2.2021)
+#  - bugfix 123: symmetric encryption errs out, asks for '' private key
+#
+#  2.3 (30.12.2020)
+#  - don't import whole key pair anymore if only pub/sec is requested
+#  - gpg import routine informs on missing key files in profile now
+#  - add check/import needed secret key for decryption
+#  - featreq 50: Disable GPG key backups, implemented/added settings
+#      GPG_IMPORT/GPG_EXPORT='disabled' to conf template
+#
+#  2.2.2 (24.02.2020)
+#  - bugfix 120: Failures in "Autoset trust of key" during restore 
+#    because of gpg2.2 fingerprint output change
+#
+#  2.2.1 (22.01.2020)
+#  - featreq 46: Example systemd units & Howto, courtesy of Jozef Riha
+#  - featreq 47: Clarify message about keeping the profile, also by Jozef Riha
+#  - fix abbreviation spelling of 'e.g.'
+#
+#  2.2 (30.12.2018)
+#  - featreq 44: implement grouping for batch commands
+#      new separators are [] (square brackets) or groupIn/groupOut
+#      command 'backup' translates now to [pre_bkp_post] to be skipped as
+#      one block in case a condition was set in the batch instruction
+#
+#  2.1 (23.07.2018)
+#  - be more verbose when duplicity version detection fails
+#  - using info shows python binary's path for easier identification now
+#  - reworked python interpreter handling, it's either
+#      configured per PYTHON var
+#      unconfigured, parsed from duplicity shebang
+#      or set to current duplicity default 'python2' (was 'python' until now)
+#  - do not quotewrap strings because of slashes (e.g. paths) anymore
+#  - bugfix: improved in/exclude stripping from conf DUPL_PARAMS
+#
+#  2.0.4 (20.02.2018)
+#  - bugfix 114: "duply usage is not current" wrt. purgeFull/Incr
+#  - bugfix 115: typo in error message - "Not GPG_KEY entries" should be "No"
+#  - bugfix 117: no duply_ prefix when ARCH_DIR is set in conf
+#  - bugfix debian 882159: duply: occasionally shows negative runtimes
+#
 #  2.0.3 (29.08.2017)
 #  - bugfix: "line 2231: CMDS: bad array subscript"
 #  - bugfix 112: "env: illegal option -- u" on MacOSX
@@ -83,7 +139,7 @@
 #    path /usr/bin/python until 0.7.05, which we circumvent this way)
 #  - featreq 36: support gpg-connect-agent as a means to detect if an agent is 
 #    running (thx Thomas Harning Jr.), used gpg-agent for detection though
-#  - quotewrapped run_cmd parameters to protect it from spaces eg. in TMP path
+#  - quotewrapped run_cmd parameters to protect it from spaces e.g. in TMP path
 #  - key export routine respects gpg-agent usage now
 #
 #  1.10.1 (19.8.2015)
@@ -475,8 +531,8 @@ function lookup {
 ME_LONG="$0"
 ME="$(basename $0)"
 ME_NAME="${ME%%.*}"
-ME_VERSION="2.0.3"
-ME_WEBSITE="http://duply.net"
+ME_VERSION="2.4.1"
+ME_WEBSITE="https://duply.net"
 
 # default config values
 DEFAULT_SOURCE='/path/of/source'
@@ -486,7 +542,6 @@ DEFAULT_TARGET_PASS='_backend_password_'
 DEFAULT_GPG='gpg'
 DEFAULT_GPG_KEY='_KEY_ID_'
 DEFAULT_GPG_PW='_GPG_PASSWORD_'
-DEFAULT_PYTHON='python'
 
 # function definitions ##########################
 
@@ -546,22 +601,43 @@ $(version_info)
 END
 }
 
-function python_binary {
-  echo "${PYTHON-$DEFAULT_PYTHON}"
-}
-
 function using_info {
-  lookup duplicity && duplicity_version_get
-  local NOTFOUND="MISSING"
-  # freebsd awk (--version only), debian mawk (-W version only), deliver '' so awk does not wait for input
-  local AWK_VERSION=$( lookup awk && (awk --version 2>/dev/null || awk -W version 2>&1) | awk 'NR<=2&&tolower($0)~/(busybox|awk)/{success=1;print;exit} END{if(success<1) print "unknown"}' || echo "$NOTFOUND" )
-  local GREP_VERSION=$( lookup grep && grep --version 2>&1 | awk 'NR<=2&&tolower($0)~/(busybox|grep.*[0-9]+\.[0-9]+)/{success=1;print;exit} END{if(success<1) print "unknown"}' || echo "$NOTFOUND" )
-  local PYTHON_RUNNER=$(python_binary)
-  local PYTHON_VERSION=$(lookup "$PYTHON_RUNNER" && "$PYTHON_RUNNER" -V 2>&1| awk '{print tolower($0);exit}' || echo "'$PYTHON_RUNNER' $NOTFOUND" )
+  # init needed vars into global name space
+  lookup duplicity && { duplicity_version_get; }
+  local NOTFOUND="INVALID"
+  local AWK_VERSION GREP_VERSION PYTHON_RUNNER \
+    PYTHON_RUNNER_RESOLVED PYTHON_VERSION PYTHON_PATH
+  # freebsd awk / GNU awk (--version), 
+  # debian mawk (-W version), 
+  # openbsd awk (-V, exitcode 0 when any program string is given regardless .e.g. "-W version", so place it last) 
+  # some awks wait for input if they misinterpret/don't know the options, pipe '' as a precaution
+  AWK_VERSION=$( lookup awk && ( 
+	echo | awk --version ||\
+	echo | awk -V ||\
+	echo | awk -W version ) 2>/dev/null | awk 'NR<=2&&tolower($0)~/(busybox|awk)/{success=1;print;exit} END{if(success<1) print "unknown"}' || echo "$NOTFOUND" )
+  GREP_VERSION=$( lookup grep && grep --version 2>&1 | awk 'NR<=2&&tolower($0)~/(busybox|grep.*[0-9]+\.[0-9]+)/{success=1;print;exit} END{if(success<1) print "unknown"}' || echo "$NOTFOUND" )
+
+  if [ -n "$PYTHON" ]; then
+    PYTHON_RUNNER=$PYTHON
+  else
+    PYTHON_RUNNER="$(duplicity_python_binary_parse)"
+  fi
+  # fetch version and resolve python
+  [ -n "$PYTHON_RUNNER" ] && {
+    PYTHON_VERSION=$($PYTHON_RUNNER -V 2>&1| awk '{print tolower($0);exit}' || echo "'$PYTHON_RUNNER' $NOTFOUND" )
+    local PYTHON_RUNNER_ARRAY=( $PYTHON_RUNNER )
+    PYTHON_RUNNER_RESOLVED="$(which ${PYTHON_RUNNER_ARRAY[0]})"
+    # readd params if there were
+    [ ${#PYTHON_RUNNER_ARRAY[@]} -gt 1 ] && \
+      PYTHON_RUNNER_RESOLVED="${PYTHON_RUNNER_RESOLVED} ${PYTHON_RUNNER_ARRAY[@]:1}"
+      PYTHON_PATH="$($PYTHON_RUNNER -c "import sys;print(':'.join(sys.path));")"
+  }
+
   local GPG_INFO=$(gpg_avail && gpg --version 2>&1| awk '/^gpg.*[0-9\.]+$/&&length(v)<1{v=$1" "$3}/^Home:/{h=" ("$0")"}END{print v""h}' || echo "gpg $NOTFOUND")
   local BASH_VERSION=$(bash --version | awk 'NR==1{IGNORECASE=1;sub(/GNU bash, version[ ]+/,"",$0);print $0}')
+  # print out
   echo -e "Using installed duplicity version ${DUPL_VERSION:-$NOTFOUND}\
-${PYTHON_VERSION+, $PYTHON_VERSION${PYTHONPATH:+ 'PYTHONPATH=$PYTHONPATH'}}\
+${PYTHON_VERSION+, $PYTHON_VERSION ${PYTHON_RUNNER:+($PYTHON_RUNNER_RESOLVED)}${PYTHON_PATH:+ 'PYTHONPATH=$PYTHON_PATH'}}\
 ${GPG_INFO:+, $GPG_INFO}${AWK_VERSION:+, awk '${AWK_VERSION}'}${GREP_VERSION:+, grep '${GREP_VERSION}'}\
 ${BASH_VERSION:+, bash '${BASH_VERSION}'}."
 }
@@ -577,7 +653,7 @@ DESCRIPTION:
   It simplifies running duplicity with cron or on command line by:
 
     - keeping recurring settings in profiles per backup job
-    - enabling batch operations eg. backup_verify+purge
+    - enabling batch operations e.g. backup_verify+purge
     - executing pre/post scripts (different actions possible 
       depending on previous or next command or it's exit status)
     - precondition checking for flawless duplicity operation
@@ -631,16 +707,21 @@ SEPARATORS:
   - (minus sign), _or_  
              conditional OR
              the next command will only be executed if the previous failed
+  [] (square brackets), _groupIn_/_groupOut_  
+             enables grouping of commands
 
    example:  
-    'pre+bkp-verify_post' translates to 'pre_and_bkp_or_verify_post'
+    'pre+[bkp-verify]_post' translates to
+    'pre_and_groupIn_bkp_or_verify_groupOut_post'
 
 COMMANDS:
   usage      get usage help text
 
-  and/or     pseudo commands for better batch cmd readability (see SEPARATORS)
+  and/or/groupIn/groupOut  
+             pseudo commands used in batches (see SEPARATORS above)
+
   create     creates a configuration profile
-  backup     backup with pre/post script execution (batch: pre_bkp_post),
+  backup     backup with pre/post script execution (batch: [pre_bkp_post]),
               full (if full_if_older matches or no earlier backup is found)
               incremental (in all other cases)
   pre/post   execute '<profile>/$(basename "$PRE")', '<profile>/$(basename "$POST")' scripts
@@ -672,6 +753,14 @@ COMMANDS:
              the number of full backups which associated incrementals will be
              kept, counting in reverse chronological order) 
               [use --force to actually delete these files]
+  purgeAuto [--force]  
+             convenience batch wrapper for all purge commands above.
+             purge, purgeFull, purgeIncr are added if their conf vars were set. e.g.
+              MAX_AGE=1Y
+              MAX_FULL_BACKUPS=6
+              MAX_FULLS_WITH_INCR=3
+             in profile conf file would result in
+              [purge_purgeFull_purgeIncr]
   cleanup [--force]  
              list broken backup chain files archives (e.g. after unfinished run)
               [use --force to actually delete these files]
@@ -683,7 +772,8 @@ COMMANDS:
   version    show version information of $ME_NAME and needed programs
 
 OPTIONS:
-  --force    passed to duplicity (see commands: purge, purge-full, cleanup)
+  --force    passed to duplicity (see commands: 
+             purge, purgeFull, purgeIncr, cleanup)
   --preview  do nothing but print out generated duplicity command lines
   --disable-encryption  
              disable encryption, overrides profile settings
@@ -700,8 +790,9 @@ PRE/POST SCRIPTS:
   Some useful internal duply variables are exported to the scripts.
 
     PROFILE, CONFDIR, SOURCE, TARGET_URL_<PROT|HOSTPATH|USER|PASS>, 
-    GPG_<KEYS_ENC|KEY_SIGN|PW>, CMD_<PREV|NEXT>, CMD_ERR, RUN_START,
-    CND_<PREV|NEXT> (condition before/after next/prev command)
+    GPG_<KEYS_ENC|KEY_SIGN|PW>, CMD_ERR, RUN_START,
+    CMD_<PREV|NEXT> (previous/next command), 
+    CND_<PREV|NEXT> (condition before/after)
 
   The CMD_* variables were introduced to allow different actions according to 
   the command the scripts were attached to e.g. 'pre_bkp_post_pre_verify_post' 
@@ -739,8 +830,7 @@ FILES:
 $(hint_profile)
 
 SEE ALSO:
-  duplicity man page:
-    duplicity(1) or http://duplicity.nongnu.org/duplicity.1.html
+  duplicity man page duplicity(1) or http://duplicity.us/docs.html
 USAGE_EOF
 }
 
@@ -806,14 +896,18 @@ GPG_PW='${DEFAULT_GPG_PW}'
 
 # disable preliminary tests with the following setting
 #GPG_TEST='disabled'
+# disable automatic gpg key importing altogether
+#GPG_IMPORT='disabled'
+# disable automatic gpg key exporting to profile folder
+#GPG_EXPORT='disabled'
 
 # backend, credentials & location of the backup target (URL-Format)
 # generic syntax is
 #   scheme://[user[:password]@]host[:port]/[/]path
-# eg.
+# e.g.
 #   sftp://bob:secret@backupserver.com//home/bob/dupbkp
 # for details and available backends see duplicity manpage, section URL Format
-#   http://duplicity.nongnu.org/duplicity.1.html#sect7
+#   http://duplicity.us/vers8/duplicity.1.html#url-format
 # BE AWARE:
 #   some backends (cloudfiles, S3 etc.) need additional env vars to be set to
 #   work properly, read after the TARGET definition for more details.
@@ -824,6 +918,7 @@ GPG_PW='${DEFAULT_GPG_PW}'
 #   if you define the credentials as TARGET_USER, TARGET_PASS below $ME
 #   will try to url_encode them for you if the need arises.
 TARGET='${DEFAULT_TARGET}'
+
 # optionally the username/password can be defined as extra variables
 # setting them here _and_ in TARGET results in an error
 # ATTENTION:
@@ -833,7 +928,7 @@ TARGET='${DEFAULT_TARGET}'
 #   env vars should be set.
 #TARGET_USER='${DEFAULT_TARGET_USER}'
 #TARGET_PASS='${DEFAULT_TARGET_PASS}'
-# eg. for cloud files backend it might look like this (uncomment for use!)
+# e.g. for cloud files backend it might look like this (uncomment for use!)
 #export CLOUDFILES_USERNAME='someuser'
 #export CLOUDFILES_APIKEY='somekey'
 #export CLOUDFILES_AUTHURL ='someurl'
@@ -854,8 +949,8 @@ SOURCE='${DEFAULT_SOURCE}'
 #  "trickle -s -u 640 -d 5120" # 5Mb up, 40Mb down"
 #DUPL_PRECMD=""
 
-# override the used python interpreter, defaults to "python"
-#   e.g. "python2" or "/usr/bin/python2.7"
+# override the python interpreter to execute duplicity, unset by default
+#  e.g. "python3" or "/usr/bin/python3.8"
 #PYTHON="python"
 
 # exclude folders containing exclusion file (since duplicity 0.5.14)
@@ -867,12 +962,12 @@ SOURCE='${DEFAULT_SOURCE}'
 # see duplicity man page, chapter TIME_FORMATS)
 #MAX_AGE=1M
 
-# Number of full backups to keep. Used for the "purge-full" command. 
+# Number of full backups to keep. Used for the "purgeFull" command. 
 # See duplicity man page, action "remove-all-but-n-full".
 #MAX_FULL_BACKUPS=1
 
 # Number of full backups for which incrementals will be kept for.
-# Used for the "purge-incr" command.
+# Used for the "purgeIncr" command.
 # See duplicity man page, action "remove-all-inc-of-but-n-full".
 #MAX_FULLS_WITH_INCRS=1
 
@@ -940,7 +1035,7 @@ EOF
 # + dir/bar
 # - **
 # for more details see duplicity manpage, section File Selection
-# http://duplicity.nongnu.org/duplicity.1.html#sect9
+# http://duplicity.us/vers8/duplicity.1.html#file-selection
 
 EOF
 
@@ -964,12 +1059,23 @@ function hint_profile {
   cat <<EOF
 IMPORTANT:
   Copy the _whole_ profile folder after the first backup to a safe place.
-  It contains everything needed to restore your backups. You will need 
-  it if you have to restore the backup from another system (e.g. after a 
-  system crash). Keep access to these files restricted as they contain 
-  _all_ informations (gpg data, ftp data) to access and modify your backups.
+  It contains everything (duply related) needed to restore your backups. 
 
-  Repeat this step after _all_ configuration changes. Some configuration 
+  Pay attention to (possibly later added) external files such as credentials
+  or auth files (e.g. netrc, .megarc, ssh keys) or environment variables
+  (e.g. DPBX_ACCESS_TOKEN). 
+  It is good policy to place those in the profile folder if possible at all.
+    e.g. in case of 'multi://' target the config .json file
+  Env vars should be added to duply profiles' conf file.
+
+  Keep access to these files restricted as they contain information (gpg key,
+  passphrases etc.) to access and modify your backups.
+  
+  Finally:
+  You should attempt a restore from an unrelated host to be sure you really
+  have everything needed for restoration.
+
+  Repeat these steps after _all_ configuration changes. Some configuration 
   options are crucial for restoration.
 
 EOF
@@ -1017,23 +1123,13 @@ Hint${hint:+s}:
   Don't forget the used _password_ as you will need it.
   When done enter the 8 digit id & the password in the profile conf file.
 
-  The key id can be found doing a 'gpg --list-keys'. In the  example output 
-  below the key id would be FFFFFFFF for the public key.
+  The key id can be found doing a 'gpg --list-keys'. In the example output 
+  below the key id for the public key would be FFFFFFFF.
 
   pub   1024D/FFFFFFFF 2007-12-17
   uid                  duplicity
   sub   2048g/899FE27F 2007-12-17
 "
-}
-
-function error_gpg_key {
-  local KEY_ID="$1"
-  local KIND="$2"
-  error_gpg "${KIND} gpg key '${KEY_ID}' cannot be found." \
-"Doublecheck if the above key is listed by 'gpg --list-keys' or available 
-  as gpg key file '$(basename "$(gpg_keyfile "${KEY_ID}")")' in the profile folder.
-  If not you can put it there and $ME_NAME will autoimport it on the next run.
-  Alternatively import it manually as the user you plan to run $ME_NAME with."
 }
 
 function error_gpg_test {
@@ -1058,36 +1154,49 @@ PATH='$PATH'
 }
 
 function error_to_string {
-	[ -n "$1" ] && [ "$1" -eq 0 ] && echo "OK" || echo "FAILED 'code $1'"
+  [ -n "$1" ] && [ "$1" -eq 0 ] && echo "OK" || echo "FAILED 'code $1'"
 }
 
 function duplicity_version_get {
-	var_isset DUPL_VERSION && return
-	DUPL_VERSION=`duplicity --version 2>&1 | awk '/^duplicity /{print $2; exit;}'`
-	#DUPL_VERSION='0.7.03' #'0.6.08b' #,0.4.4.RC4,0.6.08b
-	DUPL_VERSION_VALUE=0
-	DUPL_VERSION_AWK=$(awk -v v="$DUPL_VERSION" 'BEGIN{
-	if (match(v,/[^\.0-9]+[0-9]*$/)){
-		rest=substr(v,RSTART,RLENGTH);v=substr(v,0,RSTART-1);}
-	if (pos=match(rest,/RC([0-9]+)$/)) rc=substr(rest,pos+2)
-	split(v,f,"[. ]"); if(f[1]f[2]f[3]~/^[0-9]+$/) vvalue=f[1]*10000+f[2]*100+f[3]; else vvalue=0
-	print "#"v"_"rest"("rc"):"f[1]"-"f[2]"-"f[3]
-	print "DUPL_VERSION_VALUE=\047"vvalue"\047"
-	print "DUPL_VERSION_RC=\047"rc"\047"
-	print "DUPL_VERSION_SUFFIX=\047"rest"\047"
-	}')
-	eval "$DUPL_VERSION_AWK"
-	#echo -e ",$DUPL_VERSION,$DUPL_VERSION_VALUE,$DUPL_VERSION_RC,$DUPL_VERSION_SUFFIX,"
-}
+  # use cached value, just print
+  var_isset DUPL_VERSION && return
 
-function duplicity_version_check {
-	if [ $DUPL_VERSION_VALUE -eq 0 ]; then
-		inform "duplicity version check failed (please report, this is a bug)" 
-	elif [ $DUPL_VERSION_VALUE -le 404 ] && [ ${DUPL_VERSION_RC:-4} -lt 4 ]; then
-		error "The installed version $DUPL_VERSION is incompatible with $ME_NAME v$ME_VERSION.
+  local DUPL_VERSION_OUT DUPL_VERSION_AWK PYTHON_BIN CMD='duplicity'
+  # only run with a user specific python if configured (running by default
+  # breaks homebrew as they place a shell wrapper for duplicity in path)
+  [ -n "$PYTHON" ] &&\
+    CMD="$PYTHON $(qw "$(which duplicity)")"
+
+  DUPL_VERSION_OUT=$($CMD --version)
+  DUPL_VERSION=`echo $DUPL_VERSION_OUT | awk '/^duplicity /{print $2; exit;}'`
+  #DUPL_VERSION='0.7.03' #'0.6.08b' #,0.4.4.RC4,0.6.08b
+  DUPL_VERSION_VALUE=0
+  DUPL_VERSION_AWK=$(awk -v v="$DUPL_VERSION" 'BEGIN{
+  if (match(v,/[^\.0-9]+[0-9]*$/)){
+    rest=substr(v,RSTART,RLENGTH);v=substr(v,0,RSTART-1);}
+  if (pos=match(rest,/RC([0-9]+)$/)) rc=substr(rest,pos+2)
+  split(v,f,"[. ]"); if(f[1]f[2]f[3]~/^[0-9]+$/) vvalue=f[1]*10000+f[2]*100+f[3]; else vvalue=0
+  print "#"v"_"rest"("rc"):"f[1]"-"f[2]"-"f[3]
+  print "DUPL_VERSION_VALUE=\047"vvalue"\047"
+  print "DUPL_VERSION_RC=\047"rc"\047"
+  print "DUPL_VERSION_SUFFIX=\047"rest"\047"
+  }')
+  eval "$DUPL_VERSION_AWK"
+  #echo -e ",$DUPL_VERSION,$DUPL_VERSION_VALUE,$DUPL_VERSION_RC,$DUPL_VERSION_SUFFIX,"
+
+  # doublecheck findings and report error
+  if [ $DUPL_VERSION_VALUE -eq 0 ]; then
+    inform "duplicity version check failed (please report, this is a bug)
+the command
+  $CMD
+resulted in
+  $DUPL_VERSION_OUT
+"
+  elif [ $DUPL_VERSION_VALUE -le 404 ] && [ ${DUPL_VERSION_RC:-4} -lt 4 ]; then
+    error "The installed version $DUPL_VERSION is incompatible with $ME_NAME v$ME_VERSION.
 You should upgrade your version of duplicity to at least v0.4.4RC4 or
 use the older ftplicity version 1.1.1 from $ME_WEBSITE."
-	fi
+  fi
 }
 
 function duplicity_version_ge {
@@ -1098,10 +1207,45 @@ function duplicity_version_lt {
   ! duplicity_version_ge "$1"
 }
 
+# parse interpreter from duplicity shebang
+function duplicity_python_binary_parse {
+  # reuse cached result
+  var_isset 'DUPL_PYTHON_BIN' && {
+    [ -n "$DUPL_PYTHON_BIN" ] && {
+      echo $DUPL_PYTHON_BIN
+      return
+    } || return 1
+  }
+
+  # no duplicity, nothing to parse
+  lookup duplicity || return 1
+
+  local DUPL_BIN=$(which duplicity)
+  # test for shebang
+  IFS= LC_ALL=C read -rN2 shebang < "$DUPL_BIN" && [ "$shebang" != '#!' ] && {
+    DUPL_PYTHON_BIN=""
+    return 1
+  }
+
+  # parse it or warn
+  DUPL_PYTHON_BIN=$(awk 'NR==1&&/^#!/{sub(/^#!( *\/usr\/bin\/env *)?/,""); print}' < "$DUPL_BIN")
+  if ! echo "$DUPL_PYTHON_BIN" | grep -q -i 'python'; then
+    warning "Could not parse the python interpreter used from duplicity ($DUPL_BIN). Result was 
+'$DUPL_PYTHON_BIN'.
+"
+    DUPL_PYTHON_BIN=""
+    return 1
+  fi
+  
+  # success
+  echo $DUPL_PYTHON_BIN
+  return
+}
+
 function run_script { # run pre/post scripts
   local ERR=0
   local SCRIPT="$1"
-  if [ ! -z "$PREVIEW" ] ; then	
+  if [ ! -z "$PREVIEW" ] ; then
     echo "$([ ! -x "$SCRIPT" ] && echo ". ")$SCRIPT"
   elif [ -r "$SCRIPT" ] ; then 
     echo -n "Running '$SCRIPT' "
@@ -1149,7 +1293,7 @@ function qw { quotewrap "$@"; }
 function quotewrap {
   local param="$@"
   # quote strings having non word chars (e.g. spaces)
-  if echo "$param"  | awk '/[^A-Za-z0-9_\.\-]/{exit 0}{exit 1}'; then
+  if echo "$param"  | awk '/[^A-Za-z0-9_\.\-\/]/{exit 0}{exit 1}'; then
     echo "$param" | awk '{\
       gsub(/[\047]/,"\047\\\047\047",$0);\
       gsub(/[\042]/,"\047\\\042\047",$0);\
@@ -1182,8 +1326,15 @@ function duplicity_params_global {
     local DUPL_ARCHDIR=''
     if var_isset 'ARCH_DIR'; then
       DUPL_ARCHDIR="--archive-dir $(qw "${ARCH_DIR}")"
+      # reuse erronously duply_ prefixed folders from bug #117
+      if [ -d "$ARCH_DIR/duply_${PROFILE}" ]; then
+        DUPL_ARCHDIR="${DUPL_ARCHDIR} --name $(qw "duply_${PROFILE}")"
+      else
+        DUPL_ARCHDIR="${DUPL_ARCHDIR} --name $(qw "${PROFILE}")"
+      fi
+    else
+      DUPL_ARCHDIR="--name $(qw "duply_${PROFILE}")"
     fi
-DUPL_ARCHDIR="${DUPL_ARCHDIR} --name $(qw "duply_${PROFILE}")"
   fi
 
 DUPL_PARAMS_GLOBAL="${DUPL_ARCHDIR} ${DUPL_PARAM_ENC} \
@@ -1194,18 +1345,40 @@ DUPL_VARS_GLOBAL="TMPDIR='$TEMP_DIR' \
  ${DUPL_ARG_ENC}"
 }
 
-
 # function to filter the DUPL_PARAMS var from user conf
 function duplicity_params_conf {
   # reuse cmd var from main loop
   ## in/exclude parameters are currently not supported on restores
   if [ "$cmd" = "fetch" ] || [ "$cmd" = "restore" ] || [ "$cmd" = "status" ]; then
-    # filter exclude params from fetch/restore
-    echo "$DUPL_PARAMS" | awk '{gsub(/--(ex|in)clude[a-z-]*(([ \t]+|=)[^-][^ \t]+)?/,"");print}'
+    # filter exclude params from fetch/restore/status
+    eval "stripXcludes $DUPL_PARAMS"
     return
   fi
-  
+
+  # nothing done, print unchanged
   echo "$DUPL_PARAMS"
+}
+
+# strip in/exclude parameters from param string
+function stripXcludes {
+  local STRIPNEXT OUT;
+  for p in "$@"; do
+    if [ -n "$STRIPNEXT" ]; then
+      unset STRIPNEXT
+      # strip the value of previous parameter
+      continue
+    elif echo "$p" | awk '/^\-\-(in|ex)clude(\-[a-zA-Z]+)?$/{exit 0;}{exit 1;}'; then
+      # strips e.g. --include /foo/bar
+      STRIPNEXT="yes"
+      continue
+    elif echo "$p" | awk '/^\-\-(in|ex)clude(\-[a-zA-Z]+)?=/{exit 0;}{exit 1;}'; then
+      # strips e.g. --include=/foo/bar
+      continue
+    fi
+    
+    OUT="$OUT $(qw "$p")"
+  done
+  echo "$OUT"
 }
 
 function duplify { # the actual wrapper function
@@ -1228,82 +1401,93 @@ function duplify { # the actual wrapper function
   # init global duplicity parameters same for all tasks
   duplicity_params_global
 
-  local RUN=eval BIN=duplicity DUPL_BIN
+  local RUN=eval CMD=duplicity
   # run in cmd line preview mode if requested
   var_isset 'PREVIEW' && RUN=echo
-  # try to resolve duplicity path for usage with python interpreter
-  DUPL_BIN=$(which "$BIN") || DUPL_BIN="$BIN"
   # only run with a user specific python if configured (running by default
   # breaks homebrew as they place a shell wrapper for duplicity in path)
-  [ -n "$PYTHON" ] && [ "$PYTHON" != "$DEFAULT_PYTHON" ] &&\
-    BIN="$(qw "$(python_binary)") $(qw "$DUPL_BIN")"
+  # resolve duplicity path for usage with python interpreter
+  [ -n "$PYTHON" ] &&\
+    CMD="$PYTHON $(qw "$(which duplicity)")"
 
-$RUN "${DUPL_VARS_GLOBAL} ${BACKEND_PARAMS} \
-${DUPL_PRECMD} $BIN $DUPL_CMD $DUPL_PARAMS_GLOBAL $(duplicity_params_conf)\
- $GPG_USEAGENT $(gpg_custom_binary) $DUPL_CMD_PARAMS"
+$RUN "${DUPL_VARS_GLOBAL} ${BACKEND_PARAMS}\
+  ${DUPL_PRECMD} $CMD $DUPL_CMD $DUPL_PARAMS_GLOBAL $(duplicity_params_conf)\
+  $GPG_USEAGENT $(gpg_custom_binary) $DUPL_CMD_PARAMS"
 
   local ERR=$?
   return $ERR
 }
 
 function secureconf { # secure the configuration dir
-	#PERMS=$(ls -la $(dirname $CONFDIR) | grep -e " $(basename $CONFDIR)\$" | awk '{print $1}')
-	local PERMS="$(ls -la "$CONFDIR/." | awk 'NR==2{print $1}')"
-	if [ "${PERMS/#drwx------*/OK}" != 'OK' ] ; then
-		chmod u+rwX,go= "$CONFDIR"; local ERR=$?
-		warning "The profile's folder 
+  #PERMS=$(ls -la $(dirname $CONFDIR) | grep -e " $(basename $CONFDIR)\$" | awk '{print $1}')
+  local PERMS="$(ls -la "$CONFDIR/." | awk 'NR==2{print $1}')"
+  if [ "${PERMS/#drwx------*/OK}" != 'OK' ] ; then
+    chmod u+rwX,go= "$CONFDIR"; local ERR=$?
+    warning "The profile's folder 
 '$CONFDIR'
 permissions are not safe ($PERMS). Secure them now. - ($(error_to_string $ERR))"
-	fi
+  fi
 }
 
 # params are $1=timeformatstring (default like date output), $2=epoch seconds since 1.1.1970 (default now)
 function date_fix {
-	local DEFAULTFORMAT='%a %b %d %H:%M:%S %Z %Y'
-	# gnu date with -d @epoch
-	date=$(date ${2:+-d @$2} ${1:++"$1"} 2> /dev/null) && \
-		echo $date && return
-	# date bsd,osx with -r epoch
-	date=$(date ${2:+-r $2} ${1:++"$1"} 2> /dev/null) && \
-		echo $date && return	
-	# date busybox with -d epoch -D %s
-	date=$(date ${2:+-d $2 -D %s} ${1:++"$1"} 2> /dev/null) && \
-		echo $date && return
-	## some date commands do not support giving a time w/o setting it systemwide (irix,solaris,others?)
-	# python fallback
-	date=$("$(python_binary)" -c "import time;print time.strftime('${1:-$DEFAULTFORMAT}',time.localtime(${2}))" 2> /dev/null) && \
-		echo $date && return
-	# awk fallback
-	date=$(awk "BEGIN{print strftime(\"${1:-$DEFAULTFORMAT}\"${2:+,$2})}" 2> /dev/null) && \
-		echo $date && return
-	# perl fallback
-	date=$(perl  -e "use POSIX qw(strftime);\$date = strftime(\"${1:-$DEFAULTFORMAT}\",localtime(${2}));print \"\$date\n\";" 2> /dev/null) && \
-		echo $date && return
-	# error
-	echo "ERROR"
-	return 1
+  local DEFAULTFORMAT='%a %b %d %H:%M:%S %Z %Y'
+  local date
+  #[ "$1" == "%N" ] && return #test the no nsec test below
+  # gnu date with -d @epoch
+  date=$(date ${2:+-d @$2} ${1:++"$1"} 2> /dev/null) && \
+    echo $date && return
+  # date bsd,osx with -r epoch
+  date=$(date ${2:+-r $2} ${1:++"$1"} 2> /dev/null) && \
+    echo $date && return
+  # date busybox with -d epoch -D %s
+  date=$(date ${2:+-d $2 -D %s} ${1:++"$1"} 2> /dev/null) && \
+    echo $date && return
+  ## some date commands do not support giving a time w/o setting it systemwide (irix,solaris,others?)
+  # python fallback
+  #date=$("$(python_binary)" -c "import time;print time.strftime('${1:-$DEFAULTFORMAT}',time.localtime(${2}))" 2> /dev/null) && \
+  #  echo $date && return
+  # awk fallback
+  date=$(awk "BEGIN{print strftime(\"${1:-$DEFAULTFORMAT}\"${2:+,$2})}" 2> /dev/null) && \
+    echo $date && return
+  # perl fallback
+  date=$(perl  -e "use POSIX qw(strftime);\$date = strftime(\"${1:-$DEFAULTFORMAT}\",localtime(${2}));print \"\$date\n\";" 2> /dev/null) && \
+    echo $date && return
+  # error
+  echo "ERROR"
+  return 1
 }
 
 function nsecs {
-	# only 9 digit returns, e.g. not all date(s) deliver nsecs
-	local NSECS=$(date +%N 2> /dev/null | head -1 |grep -e "^[[:digit:]]\{9\}$")
-	echo ${NSECS:-000000000}
+  local NSECS
+  # test if date supports nanosecond output
+  if ! var_isset NSECS_DISABLED; then
+    NSECS=$(date_fix %N 2> /dev/null | head -1 |grep -e "^[[:digit:]]\{9\}$")
+    [ -n "$NSECS" ] && NSECS_DISABLED=0 || NSECS_DISABLED=1
+  fi
+
+  # add 9 digits, not all date(s) deliver nsecs e.g. busybox date
+  if [ "$NSECS_DISABLED" == "1" ]; then
+    date_fix %s000000000
+  else
+    date_fix %s%N
+  fi
 }
 
 function nsecs_to_sec {
-	echo $(($1/1000000000)).$(printf "%03d" $(($1/1000000%1000)) )
+  echo $(($1/1000000000)).$(printf "%03d" $(($1/1000000%1000)) )
 }
 
 function datefull_from_nsecs {
-	date_from_nsecs $1 '%F %T'
+  date_from_nsecs $1 '%F %T'
 }
 
 function date_from_nsecs {
-	local FORMAT=${2:-%T}
-	local TIME=$(nsecs_to_sec $1)
-	local SECS=${TIME%.*}
-	local DATE=$(date_fix "%T" ${SECS:-0})
-	echo $DATE.${TIME#*.}
+  local FORMAT=${2:-%T}
+  local TIME=$(nsecs_to_sec $1)
+  local SECS=${TIME%.*}
+  local DATE=$(date_fix "${FORMAT}" ${SECS:-0})
+  echo $DATE.${TIME#*.}
 }
 
 function var_isset {
@@ -1316,13 +1500,26 @@ function var_isset {
 }
 
 function is_condition {
-  local CMD=$(tolower "$@")
+  local CMD=$(tolower "$1")
   [ "$CMD" == 'and' ] || [ "$CMD" == 'or' ]
+}
+
+function is_groupMarker {
+  local CMD=$(tolower "$1")
+  [ "$CMD" == 'groupin' ] || [ "$CMD" == 'groupout' ]
+}
+
+function is_command {
+  local CMD=$(tolower "$1")
+  ! is_condition "$CMD" && ! is_groupMarker "$CMD"
 }
 
 function url_encode {
   # utilize python, silently do nothing on error - because no python no duplicity
-  OUT=$("$(python_binary)" -c "
+  local PYTHON_RUNNER
+  PYTHON_RUNNER="$(duplicity_python_binary_parse)" ||\
+  PYTHON_RUNNER="python" &&\
+    OUT=$($PYTHON_RUNNER -c "
 try: import urllib.request as urllib
 except ImportError: import urllib
 print(urllib.${2}quote('$1'));
@@ -1383,8 +1580,16 @@ function join {
   echo $OUT
 }
 
+function gpg_testing {
+  [ "$GPG_TEST" != "disabled" ]
+}
+
 function gpg_signing {
   echo ${GPG_KEY_SIGN} | grep -v -q -e '^disabled$'
+}
+
+function gpg_keytype {
+  echo "$1" | awk '/^PUB$/{print "public"}/^SEC$/{print "secret"}'
 }
 
 # parameter key id, key_type
@@ -1397,10 +1602,15 @@ function gpg_keyfile {
 # parameter key id
 function gpg_import {
   local i FILE FOUND=0 KEY_ID="$1" KEY_TYPE="$2" KEY_FP="" ERR=0
+  [ "$GPG_IMPORT" = "disabled" ] && {
+    echo "Skipping import of needed $(gpg_keytype "$KEY_TYPE") key '$KEY_ID'. (GPG_IMPORT='disabled')"
+    return
+  }
+
   # create a list of legacy key file names and current naming scheme
   # we always import pub and sec if they are avail in conf folder
   local KEYFILES=( "$CONFDIR/gpgkey" $(gpg_keyfile "$KEY_ID") \
-                   $(gpg_keyfile "$KEY_ID" PUB) $(gpg_keyfile "$KEY_ID" SEC))
+                   $(gpg_keyfile "$KEY_ID" "$KEY_TYPE") )
 
   # Try autoimport from existing old gpgkey files 
   # and new gpgkey.XXX.asc files (since v1.4.2)
@@ -1422,7 +1632,8 @@ function gpg_import {
   done
 
   if [ "$FOUND" -eq 0 ]; then
-    warning "No keyfile for '$KEY_ID' found in profile\n'$CONFDIR'."
+    echo "Notice: No keyfile for '$KEY_ID' found in profile folder."
+    return 1
   fi
 
   # try to set trust automagically
@@ -1445,12 +1656,16 @@ Exit the edit mode of gpg with \"quit\"."
 
 # see 'How to specify a user ID' on gpg manpage
 function gpg_fingerprint {
-  local PRINT=$(gpg $GPG_OPTS --fingerprint "$1" 2>&1|awk -F= 'NR==2{gsub(/ /,"",$2);$2=toupper($2); if ( $2 ~ /^[A-F0-9]+$/ && length($2) == 40 ) print $2; else exit 1}') \
-    && [ -n "$PRINT" ] && echo $PRINT && return 0
-  return 1
+  gpg $GPG_OPTS --fingerprint "$1" 2>&1 | \
+  awk 'NR==2{sub(/^.*=/,"");gsub(/[ \t]/,""); if ( $0 !~ /^[A-F0-9]+$/ || length($0) != 40 ) exit 1; print}'
 }
 
 function gpg_export_if_needed {
+  [ "$GPG_EXPORT" = 'disabled' ] && { \
+    echo "Skipping export of gpg keys. (GPG_EXPORT='disabled')"
+    return
+  }
+
   local SUCCESS FILE KEY_TYPE
   local TMPFILE="$TEMP_DIR/${ME_NAME}.$$.$(date_fix %s).gpgexp"
   for KEY_ID in "$@"; do
@@ -1458,8 +1673,9 @@ function gpg_export_if_needed {
     for KEY_TYPE in PUB SEC; do
       FILE="$(gpg_keyfile "$KEY_ID" $KEY_TYPE)"
       if [ ! -f "$FILE" ] && eval gpg_$(tolower $KEY_TYPE)_avail \"$KEY_ID\"; then
+
         # exporting
-        CMD_MSG="Backup $KEY_TYPE key '$KEY_ID' to profile."
+        CMD_MSG="Backup $(gpg_keytype "$KEY_TYPE") key '$KEY_ID' to profile."
         # gpg2.1 insists on passphrase here, gpg2.0- happily exports w/o it
         # we pipe an empty string when GPG_PW is not set to avoid gpg silently waiting for input
         run_cmd $(gpg_pass_pipein GPG_PW_SIGN GPG_PW) gpg $GPG_OPTS $GPG_USEAGENT $(gpg_param_passwd GPG_PW_SIGN GPG_PW) --armor --export"$(test "SEC" = "$KEY_TYPE" && echo -secret-keys)" $(qw "$KEY_ID") '>>' $(qw "$TMPFILE")
@@ -1554,6 +1770,9 @@ function gpg_passwd {
 
 # return success if at least one secret key is available
 function gpg_key_decryptable {
+  # no keys, no problem
+  gpg_symmetric && return 0
+
   local KEY_ID
   for KEY_ID in "${GPG_KEYS_ENC_ARRAY[@]}"; do
     gpg_sec_avail "$KEY_ID" && return 0
@@ -1574,7 +1793,7 @@ function gpg_param_passwd {
   fi
 }
 
-# select the earlist defined and create an "echo <value> |" string
+# select the earliest defined and create an "echo <value> |" string
 function gpg_pass_pipein {
   var_isset GPG_USEAGENT && exit 1
   
@@ -1627,7 +1846,7 @@ function gpg_avail {
   lookup "$(gpg_binary)"
 }
 
-# enforce the use our selected gpg binary
+# enforce the use of our selected gpg binary
 function gpg {
   command "$(gpg_binary)" "$@"
 }
@@ -1684,7 +1903,7 @@ Hint:
     exit 0
     ;;
   version|-version|--version|-v|-V)
-    # profile can override GPG, so import it if it was given
+    # profile can override GPG/PYTHON, so import it if it was given
     var_isset FTPLCFG && {
       set_config
       [ -r "$CONF" ] && . "$CONF" || warning "Cannot import config '$CONF'."
@@ -1717,10 +1936,10 @@ echo "Start $ME v$ME_VERSION, time is $(date_fix '%F %T')."
 lookup duplicity || error_path "duplicity missing. installed und available in path?"
 # init, exec duplicity version check info
 duplicity_version_get
-duplicity_version_check
 
 # check for certain important helper programs
-for f in awk grep "$(python_binary)"; do
+# TODO: we should probably check for duplicity and $PYTHON (if set) here too
+for f in awk grep ; do
   lookup "$f" || \
     error_path "$f missing. installed und available in path?"
 done
@@ -1794,9 +2013,6 @@ eval "${TARGET_SPLIT_URL}"
 # Hint: cmds is also used to check if authentification info sufficient in the next step 
 cmds="$2"; shift 2
 
-# translate backup to batch command 
-cmds=${cmds//backup/pre_bkp_post}
-
 # complain if command(s) missing
 [ -z $cmds ] && error "  No command given.
 
@@ -1821,7 +2037,7 @@ for param in "$@"; do
         # forward parameter[/option pairs] to duplicity
         dupl_opts["${#dupl_opts[@]}"]=${param}
       else
-        # anything else must be a parameter (eg. for fetch, ...)
+        # anything else must be a parameter (e.g. for fetch, ...)
         ftpl_pars["${#ftpl_pars[@]}"]=${param}
       fi
       last_param=${param}
@@ -1921,17 +2137,49 @@ Tip: Separate signing keys may have empty passwords e.g. GPG_PW_SIGN=''.
 Tip2: Use gpg-agent."
 fi
 
-# check gpg encr public keys availability
+# test - GPG KEY AVAILABILITY ##################################################
+
+# check gpg public keys availability, try import if needed
 for (( i = 0 ; i < ${#GPG_KEYS_ENC_ARRAY[@]} ; i++ )); do
   KEY_ID="${GPG_KEYS_ENC_ARRAY[$i]}"
   # test availability, try to import, retest
   if ! gpg_pub_avail "${KEY_ID}"; then
-    echo "Encryption public key '${KEY_ID}' not found."
+    echo "Encryption public key '${KEY_ID}' not in keychain. Try to import from profile."
     gpg_import "${KEY_ID}" PUB
     gpg_key_cache RESET "${KEY_ID}"
-    gpg_pub_avail "${KEY_ID}" || error_gpg_key "${KEY_ID}" "Public"
+    gpg_pub_avail "${KEY_ID}" || { \
+      gpg_testing && error_gpg \
+      "Needed public gpg key '${KEY_ID}' is not available in keychain." \
+      "Doublecheck if the above key is listed by 'gpg --list-keys' or available
+  as gpg key file '$(basename "$(gpg_keyfile "${KEY_ID}")")' in the profile folder.
+  If not you can put it there and $ME_NAME will autoimport it on the next run.
+  Alternatively import it manually as the user you plan to run $ME_NAME with."
+    }
+  else
+    echo "Public key '${KEY_ID}' found in keychain."
   fi
 done
+
+# check gpg encr secret encryption keys availability and fail
+# if none is available after a round of importing trials
+gpg_key_decryptable || \
+{
+  echo "Missing secret keys for decryption in keychain."
+  for (( i = 0 ; i < ${#GPG_KEYS_ENC_ARRAY[@]} ; i++ )); do
+    KEY_ID="${GPG_KEYS_ENC_ARRAY[$i]}"
+    # test availability, try to import, retest
+    if ! gpg_sec_avail "${KEY_ID}"; then
+    echo "Try to import secret key '${KEY_ID}' from profile."
+      gpg_import "${KEY_ID}" SEC
+      gpg_key_cache RESET "${KEY_ID}"
+    fi
+  done
+  gpg_key_decryptable || \
+  {
+    gpg_testing && error_gpg_test "None of the configured keys '$(join "','" "${GPG_KEYS_ENC_ARRAY[@]}")' \
+has a secret key in the keychain. Decryption will be impossible!"
+  }
+}
 
 # gpg secret sign key availability
 # if none set, autoset first encryption key as sign key
@@ -1941,13 +2189,14 @@ if ! gpg_signing; then
 elif ! var_isset 'GPG_KEY_SIGN'; then
   KEY_ID="${GPG_KEYS_ENC_ARRAY[0]}"
   if [ -z "${KEY_ID}" ]; then
-    echo "Signing disabled. Not GPG_KEY entries in config."
+    echo "Signing disabled. No GPG_KEY entries in config."
     GPG_KEY_SIGN='disabled'
   else  
     # use avail OR try import OR fail
     if gpg_sec_avail "${KEY_ID}"; then
       GPG_KEY_SIGN="${KEY_ID}"
     else
+      echo "Signing secret key '${KEY_ID}' not found."
       gpg_import "${KEY_ID}" SEC
       gpg_key_cache RESET "${KEY_ID}"
       if gpg_sec_avail "${KEY_ID}"; then
@@ -2019,15 +2268,15 @@ echo $@ $DUPL_PARAMS | grep -q -e '--asynchronous-upload' && FACTOR=2 || FACTOR=
 # test - GPG SANITY #####################################################################
 # if encryption is disabled, skip this whole section
 if gpg_disabled; then
-  echo -e "Test - En/Decryption skipped. (GPG disabled)"
-elif [ "$GPG_TEST" = "disabled" ]; then 
-  echo -e "Test - En/Decryption skipped. (Testing disabled)"
+  echo -e "Test - En/Decryption skipped. (GPG='disabled')"
+elif ! gpg_testing; then 
+  echo -e "Test - En/Decryption skipped. (GPG_TEST='disabled')"
 else
 
-GPG_TEST="$TEMP_DIR/${ME_NAME}.$$.$(date_fix %s)"
+GPG_TEST_PREFIX="$TEMP_DIR/${ME_NAME}.$$.$(date_fix %s)"
 function cleanup_gpgtest { 
-  echo -en "Cleanup - Delete '${GPG_TEST}_*'"
-  rm "${GPG_TEST}"_* 2>/dev/null && echo "(OK)" || echo "(FAILED)"
+  echo -en "Cleanup - Delete '${GPG_TEST_PREFIX}_*'"
+  rm "${GPG_TEST_PREFIX}"_* 2>/dev/null && echo "(OK)" || echo "(FAILED)"
 }
 
 # signing enabled?
@@ -2044,7 +2293,7 @@ if [ ${#GPG_KEYS_ENC_ARRAY[@]} -gt 0 ]; then
   done
   # check encrypting
   CMD_MSG="Test - Encrypt to '$(join "','" "${GPG_KEYS_ENC_ARRAY[@]}")'${CMD_MSG_SIGN:+ & $CMD_MSG_SIGN}"
-  run_cmd $(gpg_pass_pipein GPG_PW_SIGN GPG_PW) gpg $CMD_PARAM_SIGN $(gpg_param_passwd GPG_PW_SIGN GPG_PW) $CMD_PARAMS $GPG_USEAGENT --status-fd 1 $GPG_OPTS -o $(qw "${GPG_TEST}_ENC") -e $(qw "$ME_LONG")
+  run_cmd $(gpg_pass_pipein GPG_PW_SIGN GPG_PW) gpg $CMD_PARAM_SIGN $(gpg_param_passwd GPG_PW_SIGN GPG_PW) $CMD_PARAMS $GPG_USEAGENT --status-fd 1 $GPG_OPTS -o $(qw "${GPG_TEST_PREFIX}_ENC") -e $(qw "$ME_LONG")
   CMD_ERR=$?
 
   if [ "$CMD_ERR" != "0" ]; then 
@@ -2058,7 +2307,7 @@ if [ ${#GPG_KEYS_ENC_ARRAY[@]} -gt 0 ]; then
   # check decrypting
   CMD_MSG="Test - Decrypt"
   gpg_key_decryptable || CMD_DISABLED="No matching secret key available."
-  run_cmd $(gpg_pass_pipein GPG_PW) gpg $(gpg_param_passwd GPG_PW) $GPG_OPTS -o $(qw "${GPG_TEST}_DEC") $GPG_USEAGENT -d $(qw "${GPG_TEST}_ENC")
+  run_cmd $(gpg_pass_pipein GPG_PW) gpg $(gpg_param_passwd GPG_PW) $GPG_OPTS -o $(qw "${GPG_TEST_PREFIX}_DEC") $GPG_USEAGENT -d $(qw "${GPG_TEST_PREFIX}_ENC")
   CMD_ERR=$?
 
   if [ "$CMD_ERR" != "0" ]; then 
@@ -2069,7 +2318,7 @@ if [ ${#GPG_KEYS_ENC_ARRAY[@]} -gt 0 ]; then
 else
   # check encrypting
   CMD_MSG="Test - Encryption with passphrase${CMD_MSG_SIGN:+ & $CMD_MSG_SIGN}"
-  run_cmd $(gpg_pass_pipein GPG_PW) gpg $GPG_OPTS $CMD_PARAM_SIGN --passphrase-fd 0 -o $(qw "${GPG_TEST}_ENC") --batch -c $(qw "$ME_LONG")
+  run_cmd $(gpg_pass_pipein GPG_PW) gpg $GPG_OPTS $CMD_PARAM_SIGN --passphrase-fd 0 -o $(qw "${GPG_TEST_PREFIX}_ENC") --batch -c $(qw "$ME_LONG")
   CMD_ERR=$?
   if [ "$CMD_ERR" != "0" ]; then 
     error_gpg_test "Encryption failed.${CMD_OUT:+\n$CMD_OUT}"
@@ -2077,7 +2326,7 @@ else
 
   # check decrypting
   CMD_MSG="Test - Decryption with passphrase"
-  run_cmd $(gpg_pass_pipein GPG_PW) gpg $GPG_OPTS --passphrase-fd 0 -o $(qw "${GPG_TEST}_DEC") --batch -d $(qw "${GPG_TEST}_ENC")
+  run_cmd $(gpg_pass_pipein GPG_PW) gpg $GPG_OPTS --passphrase-fd 0 -o $(qw "${GPG_TEST_PREFIX}_DEC") --batch -d $(qw "${GPG_TEST_PREFIX}_ENC")
   CMD_ERR=$?
   if [ "$CMD_ERR" != "0" ]; then 
     error_gpg_test "Decryption failed.${CMD_OUT:+\n$CMD_OUT}"
@@ -2086,8 +2335,8 @@ fi
 
 # compare original w/ decryptginal
 CMD_MSG="Test - Compare"
-[ -r "${GPG_TEST}_DEC" ] || CMD_DISABLED="File not found. Nothing to compare."
-run_cmd "test \"\$(cat '$ME_LONG')\" = \"\$(cat '${GPG_TEST}_DEC')\""
+[ -r "${GPG_TEST_PREFIX}_DEC" ] || CMD_DISABLED="File not found. Nothing to compare."
+run_cmd "test \"\$(cat '$ME_LONG')\" = \"\$(cat '${GPG_TEST_PREFIX}_DEC')\""
 CMD_ERR=$?
 if [ "$CMD_ERR" = "0" ]; then 
   cleanup_gpgtest
@@ -2177,78 +2426,155 @@ EXCLUDE="$EXCLUDE"
 # since 0.7.03 --exclude-globbing-filelist is deprecated
 EXCLUDE_PARAM="--exclude$(duplicity_version_lt 703 && echo -globbing)-filelist" 
 
-# replace magic separators to condition command equivalents (+=and,-=or)
-cmds=$(awk -v cmds="$cmds" "BEGIN{ gsub(/\+/,\"_and_\",cmds); gsub(/\-/,\"_or_\",cmds); print cmds}")
-# convert cmds to array, lowercase for safety
-CMDS=( $(awk "BEGIN{ cmds=tolower(\"$cmds\"); gsub(/_/,\" \",cmds); print cmds }") )
+# replace magic separators to command equivalents (+=and,-=or,[=groupIn,]=groupOut)
+cmds=$(awk -v cmds="$cmds" "BEGIN{ \
+  gsub(/\+/,\"_and_\",cmds);\
+  gsub(/\-/,\"_or_\",cmds);\
+  gsub(/\[/,\"_groupIn_\",cmds);\
+  gsub(/\]/,\"_groupOut_\",cmds);\
+  print cmds}")
+
+# split commands by '_', preserve spaces even if not allowed :)
+IFS='_' read -ra CMDS_IN <<< "$(tolower $cmds)"
+
+# convert cmds to array, 
+# post process, translate batch commands
+# ATTENTION: commands are lowercase from here on out
+declare -a CMDS
+for cmd in "${CMDS_IN[@]}"; do
+  case "$cmd" in
+    # backup -> [pre_bkp_post]
+    'backup')
+      CMDS=("${CMDS[@]}" groupin pre bkp post groupout)
+    ;;
+    # purgeAuto -> [purge purgeFull purgeIncr] depending on set conf vars 
+    'purgeauto')
+      purgeAuto=${MAX_AGE:+ purge}${MAX_FULL_BACKUPS:+ purgefull}${MAX_FULLS_WITH_INCRS:+ purgeincr}
+      [[ -z "$purgeAuto" ]] && error "Command 'fullAuto' was given but neither of the purge conf vars configured."
+      CMDS=("${CMDS[@]}" groupin $purgeAuto groupout)
+    ;;
+    *)
+      CMDS=("${CMDS[@]}" "$cmd")
+    ;;
+  esac
+done
+#echo $(IFS=',';echo "${CMDS[*]}")
 
 unset FTPL_ERR
 
-# run cmds
-for cmd in ${CMDS[*]};
+# run CMDS
+for cmd in "${CMDS[@]}";
 do
 
 ## init
 # raise index in cmd array for pre/post param
 var_isset 'CMD_NO' && CMD_NO=$((++CMD_NO)) || CMD_NO=0
 
-# deal with condition "commands"
+unset CMD_VALUE CMD_NEXT CMD_PREV CND_NEXT CND_PREV
+
+# get next cmd,cnd vars
+nextno=$(( $CMD_NO ))
+while ! var_isset 'CMD_NEXT'
+do
+  nextno=$(($nextno+1))
+  if [ "$nextno" -lt "${#CMDS[@]}" ]; then
+    CMD_VALUE=${CMDS[$nextno]}
+    is_condition "$CMD_VALUE" && CND_NEXT="$CMD_VALUE" && continue
+    is_groupMarker "$CMD_VALUE" && continue
+    CMD_NEXT="$CMD_VALUE"
+  else
+    CMD_NEXT='END'
+  fi
+done
+
+# get prev cnd, cnds are skipped pseudocmds
+prevno=$(( $CMD_NO ));
+while ! var_isset 'CND_PREV'
+do
+  prevno=$(($prevno-1))
+  if [ "$prevno" -ge 0 ]; then
+    CMD_VALUE=${CMDS[$prevno]}
+    is_condition "$CMD_VALUE" && CND_PREV="$CMD_VALUE" && break
+    is_command "$CMD_VALUE" && break
+  else
+    break
+  fi
+done
+
+# get prev cmd command minus skipped commands, only executed
+prevno=$(( $CMD_NO - ${CMD_SKIPPED-0} ));
+while ! var_isset 'CMD_PREV'
+do
+  prevno=$(($prevno-1))
+  if [ "$prevno" -ge 0 ]; then
+    CMD_VALUE=${CMDS[$prevno]}
+    is_condition "$CMD_VALUE" && CND_PREV="$CMD_VALUE" && continue
+    is_groupMarker "$CMD_VALUE" && continue
+    CMD_PREV="$CMD_VALUE"
+  else
+    CMD_PREV='START'
+  fi
+done
+
+function get_cmd_skip_count {
+  # find closing bracket, get group skip count
+  local nextno=$CMD_NO
+  local GRP_OPEN=0
+  local GRP_SKIP=0
+  local CMD_VALUE
+  while [ "$nextno" -lt "${#CMDS[@]}" ]
+  do
+    nextno=$(($nextno+1))
+    CMD_VALUE=${CMDS[$nextno]}
+    GRP_SKIP=$(( ${GRP_SKIP} + 1 ));
+    if is_command "$CMD_VALUE" && [ "$GRP_OPEN" -lt 1 ]; then
+        break;
+    elif [ "$CMD_VALUE" == 'groupin' ]; then
+      GRP_OPEN=$(( ${GRP_OPEN} + 1 ))
+    elif [ "$CMD_VALUE" == 'groupout' ]; then
+      GRP_OPEN=$(( ${GRP_OPEN} - 1 ))
+      if [ "$GRP_OPEN" -lt 1 ]; then
+        break;
+      fi
+    fi
+  done
+
+  echo $GRP_SKIP;
+}
+
+# decision time: are we skipping already or dealing with condition "commands" or other non-cmds?
 unset SKIP_NOW
 if var_isset 'CMD_SKIP' && [ $CMD_SKIP -gt 0 ]; then
-  echo -e "\n--- Skipping command $(toupper $cmd) ! ---"
+  # skip cnd/grp cmds silently
+  is_command "$cmd" && echo -e "\n--- Skipping command $(toupper $cmd) ! ---"
   CMD_SKIP=$(($CMD_SKIP - 1))
   SKIP_NOW="yes"
-elif [ "$cmd" == 'and' ] && [ "$CMD_ERR" -ne "0" ]; then
-  CMD_SKIP=1
+elif ! var_isset 'PREVIEW' && [ "$cmd" == 'and' ] && [ "$CMD_ERR" -ne "0" ]; then
+  CMD_SKIP=$(get_cmd_skip_count)
+  # incl. this "cmd"
+  CMD_SKIP=$(( $CMD_SKIP + 1 ))
+  unset CMD_SKIPPED
   SKIP_NOW="yes"
-elif [ "$cmd" == 'or' ] && [ "$CMD_ERR" -eq "0" ]; then
-  CMD_SKIP=1
+elif ! var_isset 'PREVIEW' && [ "$cmd" == 'or' ] && [ "$CMD_ERR" -eq "0" ]; then
+  CMD_SKIP=$(get_cmd_skip_count)
+  # incl. this "cmd"
+  CMD_SKIP=$(( $CMD_SKIP + 1 ))
+  unset CMD_SKIPPED
   SKIP_NOW="yes"
-elif [ "$cmd" == 'and' ] || [ "$cmd" == 'or' ]; then
+elif is_condition "$cmd" || is_groupMarker "$cmd"; then
   unset 'CMD_SKIP';
   SKIP_NOW="yes"
 fi
 
-# sum up how many commands we skip and actually skip
+# let's do the skip now
 if [ -n "$SKIP_NOW" ]; then
+  # sum up how many commands we actually skipped for the prev var routines
   CMD_SKIPPED=$((${CMD_SKIPPED-0} + 1))
   continue
 fi
 
-unset CMD_VALUE CMD_NEXT CMD_PREV CND_NEXT CND_PREV
-
-# get next cmd,cnd vars
-nextno=$(( $CMD_NO + 1 ))
-while ! var_isset 'CMD_NEXT'
-do
-  if [ "$nextno" -lt "${#CMDS[@]}" ]; then
-    CMD_VALUE=${CMDS[$nextno]}
-    is_condition "$CMD_VALUE" && CND_NEXT="$CMD_VALUE" || CMD_NEXT="$CMD_VALUE"
-  else
-    CMD_NEXT='END'
-  fi
-  nextno=$(($nextno+1))
-done
-
-# get prev cnd, cnd are skipped pseudocmds
-prevno=$(( $CMD_NO - 1 ))
-[ "$prevno" -ge 0 ] && is_condition "${CMDS[$prevno]}" && CND_PREV=${CMDS[$prevno]}
-
-# get prev cmd command minus skipped commands, only executed
-prevno=$(( $CMD_NO - ${CMD_SKIPPED-0} - 1 )); unset CMD_SKIPPED
-while ! var_isset 'CMD_PREV'
-do
-  if [ "$prevno" -ge 0 ]; then
-    CMD_VALUE=${CMDS[$prevno]}
-    is_condition "$CMD_VALUE" || CMD_PREV="$CMD_VALUE"
-  else
-    CMD_PREV='START'
-  fi
-  prevno=$(($prevno-1))
-done
-
 # save start time
-RUN_START=$(date_fix %s)$(nsecs)
+RUN_START=$(nsecs)
 
 # export some useful env vars for external scripts/programs to use
 export PROFILE CONFDIR SOURCE TARGET_URL_PROT TARGET_URL_HOSTPATH \
@@ -2258,7 +2584,7 @@ export PROFILE CONFDIR SOURCE TARGET_URL_PROT TARGET_URL_HOSTPATH \
        RUN_START
 
 # user info
-echo; separator "Start running command $(toupper $cmd) at $(date_from_nsecs $RUN_START)"
+echo; separator "Start running command $(toupper $cmd) at $(datefull_from_nsecs $RUN_START)"
 
 case "$(tolower $cmd)" in
   'pre'|'post')
@@ -2360,16 +2686,16 @@ case "$(tolower $cmd)" in
 esac
 
 CMD_ERR=$?
-RUN_END=$(date_fix %s)$(nsecs)
+RUN_END=$(nsecs)
 RUNTIME=$(( $RUN_END - $RUN_START ))
 
 # print message on error; set error code
 if [ "$CMD_ERR" -ne 0 ]; then
-	error_print "$(datefull_from_nsecs $RUN_END) Task '$(echo $cmd|awk '$0=toupper($0)')' failed with exit code '$CMD_ERR'."
-	FTPL_ERR=1
+  error_print "$(datefull_from_nsecs $RUN_END) Task '$(echo $cmd|awk '$0=toupper($0)')' failed with exit code '$CMD_ERR'."
+  FTPL_ERR=1
 fi
 
-separator "Finished state $(error_to_string $CMD_ERR) at $(date_from_nsecs $RUN_END) - \
+separator "Finished state $(error_to_string $CMD_ERR) at $(datefull_from_nsecs $RUN_END) - \
 Runtime $(printf "%02d:%02d:%02d.%03d" $((RUNTIME/1000000000/60/60)) $((RUNTIME/1000000000/60%60)) $((RUNTIME/1000000000%60)) $((RUNTIME/1000000%1000)) )"
 
 done
